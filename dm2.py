@@ -278,8 +278,8 @@ elif app_mode == "EDA / Insights":
     with st.expander("Feature Importance (SHAP Analysis for Training Data)"):
         try:
             # Load and preprocess training data for SHAP
-            customer_data = pd.read_csv("data/Customer_Info.csv")
-            service_data = pd.read_csv("data/Online_Services.csv").replace({'Yes': 1, 'No': 0})
+            customer_data = pd.read_csv("Customer_Info.csv")
+            service_data = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
             # Merge relevant data (assuming Customer_Info.csv contains most features)
             training_data = customer_data.merge(service_data, on='customer_id', how='left', suffixes=('', '_y'))
             # Drop irrelevant columns
