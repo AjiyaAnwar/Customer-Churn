@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import joblib
 import os
 from sklearn.metrics import confusion_matrix, classification_report
+import uuid
 
 st.set_page_config(page_title="Customer Churn App", layout="wide")
 st.title("📊 Customer Churn & CLTV Prediction App")
@@ -27,9 +28,9 @@ def load_model():
 # Load data for EDA
 @st.cache_data
 def load_eda_data():
-    customer = pd.read_csv("Customer_Info.csv")
-    service = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
-    status = pd.read_csv("Status_Analysis.csv")
+    customer = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Customer_Info.csv")
+    service = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Online_Services.csv").replace({'Yes': 1, 'No': 0})
+    status = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Status_Analysis.csv")
     return customer, service, status
 
 # New Data Prediction Mode
@@ -90,7 +91,7 @@ elif app_mode == "Prediction":
     if input_mode == "Manual Entry":
         @st.cache_data
         def load_data():
-            return pd.read_csv("Customer_Info.csv")
+            return pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Customer_Info.csv")
         
         data = load_data()
         columns_to_drop = [col for col in ['Churn', 'CLTV', 'CustomerID'] if col in data.columns]
@@ -139,6 +140,66 @@ elif app_mode == "Prediction":
     st.dataframe(styled_df)
     st.success("Prediction complete.")
 
+    # EDA for Uploaded CSV (only for Upload CSV mode)
+    if input_mode == "Upload CSV":
+        with st.expander("📊 Exploratory Data Analysis for Uploaded Data"):
+            try:
+                # Age and Gender Distribution
+                if 'age' in input_df.columns and 'gender' in input_df.columns:
+                    st.markdown("**Age and Gender Distribution**")
+                    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+                    sns.histplot(data=input_df, x='age', hue='gender', multiple='stack',
+                                 shrink=0.9, alpha=0.85, ax=axes[0], palette="viridis")
+                    # Age group calculation
+                    input_df['under_30'] = (input_df['age'] < 30).astype(int)
+                    input_df['senior_citizen'] = (input_df['age'] >= 65).astype(int)
+                    input_df['30-65'] = ((input_df['age'] >= 30) & (input_df['age'] < 65)).astype(int)
+                    age_group = input_df[['under_30', 'senior_citizen', '30-65']].sum().reset_index(name='count')
+                    age_group['index'] = ['Under 30', 'Senior Citizen', '30-65']
+                    axes[1].pie(age_group['count'], labels=age_group['index'], autopct='%1.1f%%',
+                                colors=["#ff9999", "#66b3ff", "#99ff99"], startangle=90,
+                                wedgeprops={'edgecolor': 'black'})
+                    st.pyplot(fig)
+                else:
+                    st.warning("Columns 'age' and/or 'gender' not found in uploaded CSV for age/gender distribution.")
+
+                # Service Correlation Heatmap
+                service_cols = ['phone_service_x', 'streaming_service', 'tech_service', 'unlimited_data', 'internet_type']
+                available_service_cols = [col for col in service_cols if col in input_df.columns]
+                if available_service_cols:
+                    st.markdown("**Service Correlation Heatmap**")
+                    service_matrix = input_df[available_service_cols].copy()
+                    # Convert categorical to numeric
+                    for col in service_matrix.columns:
+                        if service_matrix[col].dtype == 'object':
+                            service_matrix[col] = service_matrix[col].replace({'Yes': 1, 'No': 0})
+                    service_matrix = pd.get_dummies(service_matrix, columns=['internet_type'] if 'internet_type' in service_matrix.columns else [], dtype=int)
+                    corr_matrix = service_matrix.corr()
+                    fig = plt.figure(figsize=(10, 6))
+                    sns.heatmap(corr_matrix, cmap="mako", annot=True, fmt=".2f", linewidths=0.5,
+                                vmin=-1, vmax=1, cbar=True, square=True, annot_kws={"size": 8})
+                    st.pyplot(fig)
+                else:
+                    st.warning("No service-related columns found in uploaded CSV for correlation heatmap.")
+
+                # Churn Categories & Satisfaction (if applicable)
+                if 'churn_category' in input_df.columns and 'satisfaction_score' in input_df.columns:
+                    st.markdown("**Churn Categories & Satisfaction**")
+                    churn_data = input_df[input_df['Churn_Prediction'] == 1]  # Use predicted churn
+                    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+                    churn_cat = churn_data.groupby('churn_category').size().reset_index(name='count')
+                    ax[0].pie(churn_cat['count'], labels=churn_cat['churn_category'], autopct='%1.1f%%',
+                              colors=['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#c2c2f0'],
+                              startangle=140, wedgeprops={'edgecolor': 'black'})
+                    sns.boxplot(data=churn_data, x='churn_category', y='satisfaction_score',
+                                ax=ax[1], palette='coolwarm')
+                    st.pyplot(fig)
+                else:
+                    st.warning("Columns 'churn_category' and/or 'satisfaction_score' not found in uploaded CSV for churn analysis.")
+            except Exception as e:
+                st.error(f"Error generating EDA: {str(e)}")
+
+    # Model Performance on Test Set
     with st.expander("📈 Model Performance on Test Set"):
         y_pred = model.predict(x_test)
         st.markdown("**Confusion Matrix:**")
@@ -198,3 +259,5 @@ elif app_mode == "About":
     - EDA plots
     - Confusion matrix & classification report
     """)
+
+    
