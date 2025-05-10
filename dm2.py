@@ -5,8 +5,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import joblib
 import os
+import shap
 from sklearn.metrics import confusion_matrix, classification_report
-import uuid
 
 st.set_page_config(page_title="Customer Churn App", layout="wide")
 st.title("📊 Customer Churn & CLTV Prediction App")
@@ -199,6 +199,27 @@ elif app_mode == "Prediction":
             except Exception as e:
                 st.error(f"Error generating EDA: {str(e)}")
 
+        # SHAP Feature Importance for Uploaded CSV
+        with st.expander("📈 Feature Importance (SHAP Analysis)"):
+            try:
+                # Initialize SHAP explainer
+                explainer = shap.Explainer(model, input_df_processed)
+                shap_values = explainer(input_df_processed)
+                
+                # Plot SHAP summary (beeswarm plot)
+                st.markdown("**SHAP Summary Plot (Feature Importance)**")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                shap.summary_plot(shap_values, input_df_processed, show=False)
+                st.pyplot(fig)
+                
+                # Plot SHAP bar plot for mean absolute SHAP values
+                st.markdown("**SHAP Bar Plot (Mean Absolute Impact)**")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                shap.summary_plot(shap_values, input_df_processed, plot_type="bar", show=False)
+                st.pyplot(fig)
+            except Exception as e:
+                st.error(f"Error generating SHAP analysis: {str(e)}")
+
     # Model Performance on Test Set
     with st.expander("📈 Model Performance on Test Set"):
         y_pred = model.predict(x_test)
@@ -250,14 +271,13 @@ elif app_mode == "About":
     st.title("ℹ️ About This App")
     st.markdown("""
     This application was built to help predict telecom customer churn using logistic regression.  
-    It also provides powerful visual insights into customer behavior through EDA.
+    It also provides powerful visual insights into customer behavior through EDA and feature importance analysis.
     
     **Features**:
     - New data prediction with tailored input fields
     - Manual or CSV input for batch predictions
     - Live predictions
     - EDA plots
-    - Confusion matrix & classification report
+    - Feature importance analysis using SHAP
+    - Confusion matrix & classification report for test set
     """)
-
-    
