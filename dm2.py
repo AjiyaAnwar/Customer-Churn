@@ -28,9 +28,9 @@ def load_model():
 # Load data for EDA
 @st.cache_data
 def load_eda_data():
-    customer = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Customer_Info.csv")
-    service = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Online_Services.csv").replace({'Yes': 1, 'No': 0})
-    status = pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Status_Analysis.csv")
+    customer = pd.read_csv("Customer_Info.csv")
+    service = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
+    status = pd.read_csv("Status_Analysis.csv")
     return customer, service, status
 
 # New Data Prediction Mode
@@ -91,7 +91,7 @@ elif app_mode == "Prediction":
     if input_mode == "Manual Entry":
         @st.cache_data
         def load_data():
-            return pd.read_csv(r"C:\Users\kkt\Downloads\customer_churn\data\Customer_Info.csv")
+            return pd.read_csv("Customer_Info.csv")
         
         data = load_data()
         columns_to_drop = [col for col in ['Churn', 'CLTV', 'CustomerID'] if col in data.columns]
