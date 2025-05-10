@@ -22,16 +22,20 @@ def load_model():
     if os.path.exists(model_path):
         return joblib.load(model_path)
     else:
-        st.error("Model file not found. Please run the training script first.")
+        st.error("Model file 'churn_model.pkl' not found. Please ensure the model file is in the project directory.")
         st.stop()
 
 # Load data for EDA
 @st.cache_data
 def load_eda_data():
-    customer = pd.read_csv("Customer_Info.csv")
-    service = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
-    status = pd.read_csv("Status_Analysis.csv")
-    return customer, service, status
+    try:
+        customer = pd.read_csv("Customer_Info.csv")
+        service = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
+        status = pd.read_csv("Status_Analysis.csv")
+        return customer, service, status
+    except FileNotFoundError as e:
+        st.error(f"Error: One or more data files not found in the 'data' directory. Please ensure 'Customer_Info.csv', 'Online_Services.csv', and 'Status_Analysis.csv' are present. ({str(e)})")
+        st.stop()
 
 # New Data Prediction Mode
 if app_mode == "New Data Prediction":
@@ -91,7 +95,11 @@ elif app_mode == "Prediction":
     if input_mode == "Manual Entry":
         @st.cache_data
         def load_data():
-            return pd.read_csv("Customer_Info.csv")
+            try:
+                return pd.read_csv("Customer_Info.csv")
+            except FileNotFoundError:
+                st.error("Error: 'Customer_Info.csv' not found in the 'data' directory. Please ensure the file is present.")
+                st.stop()
         
         data = load_data()
         columns_to_drop = [col for col in ['Churn', 'CLTV', 'CustomerID'] if col in data.columns]
@@ -233,6 +241,7 @@ elif app_mode == "Prediction":
 elif app_mode == "EDA / Insights":
     st.header("🔍 Exploratory Data Analysis")
     customer, service, status = load_eda_data()
+    model, expected_features, x_test, y_test = load_model()
 
     with st.expander("Customer Age and Gender Distribution"):
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -265,6 +274,44 @@ elif app_mode == "EDA / Insights":
         sns.boxplot(data=churn, x='churn_category', y='satisfaction_score',
                     ax=ax[1], palette='coolwarm')
         st.pyplot(fig)
+
+    with st.expander("Feature Importance (SHAP Analysis for Training Data)"):
+        try:
+            # Load and preprocess training data for SHAP
+            customer_data = pd.read_csv("data/Customer_Info.csv")
+            service_data = pd.read_csv("data/Online_Services.csv").replace({'Yes': 1, 'No': 0})
+            # Merge relevant data (assuming Customer_Info.csv contains most features)
+            training_data = customer_data.merge(service_data, on='customer_id', how='left', suffixes=('', '_y'))
+            # Drop irrelevant columns
+            columns_to_drop = [col for col in ['Churn', 'CLTV', 'CustomerID', 'customer_id'] if col in training_data.columns]
+            training_data = training_data.drop(columns=columns_to_drop, errors='ignore')
+            # Preprocess: Convert categorical to dummy variables
+            training_data_processed = pd.get_dummies(training_data, dtype=int)
+            # Align with model's expected features
+            missing_cols = set(expected_features) - set(training_data_processed.columns)
+            for col in missing_cols:
+                training_data_processed[col] = 0
+            extra_cols = set(training_data_processed.columns) - set(expected_features)
+            training_data_processed = training_data_processed.drop(columns=extra_cols, errors='ignore')
+            training_data_processed = training_data_processed[expected_features]
+            
+            # Initialize SHAP explainer
+            explainer = shap.Explainer(model, training_data_processed)
+            shap_values = explainer(training_data_processed)
+            
+            # Plot SHAP summary (beeswarm plot)
+            st.markdown("**SHAP Summary Plot (Feature Importance)**")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            shap.summary_plot(shap_values, training_data_processed, show=False)
+            st.pyplot(fig)
+            
+            # Plot SHAP bar plot for mean absolute SHAP values
+            st.markdown("**SHAP Bar Plot (Mean Absolute Impact)**")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            shap.summary_plot(shap_values, training_data_processed, plot_type="bar", show=False)
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating SHAP analysis for training data: {str(e)}")
 
 # About Mode
 elif app_mode == "About":
