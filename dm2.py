@@ -7,7 +7,6 @@ import joblib
 import os
 import shap
 from sklearn.metrics import confusion_matrix, classification_report
-import warnings
 
 st.set_page_config(page_title="Customer Churn App", layout="wide")
 st.title("📊 Customer Churn & CLTV Prediction App")
@@ -16,31 +15,15 @@ st.title("📊 Customer Churn & CLTV Prediction App")
 st.sidebar.header("🔍 Navigation")
 app_mode = st.sidebar.radio("Choose App Mode:", ["New Data Prediction", "Prediction", "EDA / Insights", "About"])
 
-# Load model and test data
+# Load model and feature names
 @st.cache_resource
 def load_model():
     model_path = "churn_model.pkl"
-    if not os.path.exists(model_path):
+    if os.path.exists(model_path):
+        return joblib.load(model_path)
+    else:
         st.error("Model file 'churn_model.pkl' not found. Please ensure the model file is in the project directory.")
         st.stop()
-    model = joblib.load(model_path)
-    # Placeholder for test data and features (based on error message)
-    try:
-        # Replace with actual test data paths if available
-        x_test = pd.read_csv("x_test.csv")  # Update with correct path
-        y_test = pd.read_csv("y_test.csv")  # Update with correct path
-        expected_features = x_test.columns.tolist()
-    except FileNotFoundError:
-        st.warning("Test data not found. Using placeholder test data from error message.")
-        # Reconstruct test data based on error message
-        expected_features = [
-            'age', 'number_of_dependents', 'phone_service_x', 'streaming_service', 'tech_service',
-            'unlimited_data', 'number_of_referrals', 'satisfaction_score', 'contract_One Year',
-            'contract_Two Year', 'internet_type_DSL', 'internet_type_Fiber Optic'
-        ]
-        x_test = pd.DataFrame(np.random.rand(1409, len(expected_features)), columns=expected_features)
-        y_test = pd.Series(np.random.randint(0, 2, 1409))
-    return model, expected_features, x_test, y_test
 
 # Load data for EDA
 @st.cache_data
@@ -101,6 +84,7 @@ if app_mode == "New Data Prediction":
         input_df['Churn_Probability'] = prediction_proba[:, 1]
 
         st.subheader("Prediction Results")
+        # Apply highlight_max only to numerical columns
         numerical_cols = input_df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
         styled_df = input_df.style.highlight_max(subset=numerical_cols, axis=0, color="lightgreen")
         st.dataframe(styled_df)
@@ -160,6 +144,7 @@ elif app_mode == "Prediction":
     prediction_proba = model.predict_proba(input_df_processed)
     input_df['Churn_Prediction'] = predictions
     input_df['Churn_Probability'] = prediction_proba[:, 1]
+    # Apply highlight_max only to numerical columns
     numerical_cols = input_df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
     styled_df = input_df.style.highlight_max(subset=numerical_cols, axis=0, color="lightgreen")
     st.dataframe(styled_df)
@@ -175,6 +160,7 @@ elif app_mode == "Prediction":
                     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
                     sns.histplot(data=input_df, x='age', hue='gender', multiple='stack',
                                  shrink=0.9, alpha=0.85, ax=axes[0], palette="viridis")
+                    # Age group calculation
                     input_df['under_30'] = (input_df['age'] < 30).astype(int)
                     input_df['senior_citizen'] = (input_df['age'] >= 65).astype(int)
                     input_df['30-65'] = ((input_df['age'] >= 30) & (input_df['age'] < 65)).astype(int)
@@ -193,6 +179,7 @@ elif app_mode == "Prediction":
                 if available_service_cols:
                     st.markdown("**Service Correlation Heatmap**")
                     service_matrix = input_df[available_service_cols].copy()
+                    # Convert categorical to numeric
                     for col in service_matrix.columns:
                         if service_matrix[col].dtype == 'object':
                             service_matrix[col] = service_matrix[col].replace({'Yes': 1, 'No': 0})
@@ -208,7 +195,7 @@ elif app_mode == "Prediction":
                 # Churn Categories & Satisfaction (if applicable)
                 if 'churn_category' in input_df.columns and 'satisfaction_score' in input_df.columns:
                     st.markdown("**Churn Categories & Satisfaction**")
-                    churn_data = input_df[input_df['Churn_Prediction'] == 1]
+                    churn_data = input_df[input_df['Churn_Prediction'] == 1]  # Use predicted churn
                     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
                     churn_cat = churn_data.groupby('churn_category').size().reset_index(name='count')
                     ax[0].pie(churn_cat['count'], labels=churn_cat['churn_category'], autopct='%1.1f%%',
@@ -225,14 +212,17 @@ elif app_mode == "Prediction":
         # SHAP Feature Importance for Uploaded CSV
         with st.expander("📈 Feature Importance (SHAP Analysis)"):
             try:
+                # Initialize SHAP explainer
                 explainer = shap.Explainer(model, input_df_processed)
                 shap_values = explainer(input_df_processed)
                 
+                # Plot SHAP summary (beeswarm plot)
                 st.markdown("**SHAP Summary Plot (Feature Importance)**")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 shap.summary_plot(shap_values, input_df_processed, show=False)
                 st.pyplot(fig)
                 
+                # Plot SHAP bar plot for mean absolute SHAP values
                 st.markdown("**SHAP Bar Plot (Mean Absolute Impact)**")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 shap.summary_plot(shap_values, input_df_processed, plot_type="bar", show=False)
@@ -251,6 +241,8 @@ elif app_mode == "Prediction":
         
         st.markdown("**Classification Report:**")
         report = classification_report(y_test, y_pred, output_dict=True)
+        
+        # Log the classification report in a structured format
         for label, metrics in report.items():
             if isinstance(metrics, dict):
                 print(f"Label: {label}")
@@ -417,7 +409,9 @@ elif app_mode == "EDA / Insights":
             sns.boxplot(data=status, x='customer_status', y='satisfaction_score', order=label_order, ax=ax[1], palette='coolwarm')
             ax[1].set_title("Customer Status vs. Satisfaction Score", fontsize=11, fontweight="bold")
             ax[1].set_xlabel("")
-            ax[1].set_ylabel("Satisfaction Score", fontsize=    ax[2].set_title("Customer Status vs. CLTV", fontsize=11, fontweight="bold")
+            ax[1].set_ylabel("Satisfaction Score", fontsize=10)
+            sns.boxplot(data=status, x='customer_status', y='cltv', order=label_order, ax=ax[2], palette='viridis')
+            ax[2].set_title("Customer Status vs. CLTV", fontsize=11, fontweight="bold")
             ax[2].set_xlabel("")
             ax[2].set_ylabel("CLTV", fontsize=10)
             plt.tight_layout()
@@ -479,7 +473,7 @@ elif app_mode == "EDA / Insights":
             training_data_processed = training_data_processed.drop(columns=extra_cols, errors='ignore')
             training_data_processed = training_data_processed[expected_features]
             
-            explainer = shap.Explainer(model, training_data_processed)  # Use only the model, not the tuple
+            explainer = shap.Explainer(model, training_data_processed)
             shap_values = explainer(training_data_processed)
             
             st.markdown("**SHAP Summary Plot (Feature Importance)**")
