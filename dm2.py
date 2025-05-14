@@ -24,17 +24,22 @@ def load_model():
         st.error("Model file 'churn_model.pkl' not found. Please ensure the model file is in the project directory.")
         st.stop()
     model = joblib.load(model_path)
-    # Placeholder for test data and features (adjust based on your setup)
-    # Assuming test data is pre-saved or derived; replace with actual data loading if available
+    # Placeholder for test data and features (based on error message)
     try:
-        x_test = pd.read_csv("x_test.csv")  # Replace with actual test data path
-        y_test = pd.read_csv("y_test.csv")  # Replace with actual test labels path
+        # Replace with actual test data paths if available
+        x_test = pd.read_csv("x_test.csv")  # Update with correct path
+        y_test = pd.read_csv("y_test.csv")  # Update with correct path
         expected_features = x_test.columns.tolist()
     except FileNotFoundError:
-        st.warning("Test data not found. Using dummy test data for demonstration.")
-        x_test = pd.DataFrame(np.random.rand(100, 10), columns=[f"feature_{i}" for i in range(10)])
-        y_test = pd.Series(np.random.randint(0, 2, 100))
-        expected_features = x_test.columns.tolist()
+        st.warning("Test data not found. Using placeholder test data from error message.")
+        # Reconstruct test data based on error message
+        expected_features = [
+            'age', 'number_of_dependents', 'phone_service_x', 'streaming_service', 'tech_service',
+            'unlimited_data', 'number_of_referrals', 'satisfaction_score', 'contract_One Year',
+            'contract_Two Year', 'internet_type_DSL', 'internet_type_Fiber Optic'
+        ]
+        x_test = pd.DataFrame(np.random.rand(1409, len(expected_features)), columns=expected_features)
+        y_test = pd.Series(np.random.randint(0, 2, 1409))
     return model, expected_features, x_test, y_test
 
 # Load data for EDA
@@ -412,9 +417,7 @@ elif app_mode == "EDA / Insights":
             sns.boxplot(data=status, x='customer_status', y='satisfaction_score', order=label_order, ax=ax[1], palette='coolwarm')
             ax[1].set_title("Customer Status vs. Satisfaction Score", fontsize=11, fontweight="bold")
             ax[1].set_xlabel("")
-            ax[1].set_ylabel("Satisfaction Score", fontsize=10)
-            sns.boxplot(data=status, x='customer_status', y='cltv', order=label_order, ax=ax[2], palette='viridis')
-            ax[2].set_title("Customer Status vs. CLTV", fontsize=11, fontweight="bold")
+            ax[1].set_ylabel("Satisfaction Score", fontsize=    ax[2].set_title("Customer Status vs. CLTV", fontsize=11, fontweight="bold")
             ax[2].set_xlabel("")
             ax[2].set_ylabel("CLTV", fontsize=10)
             plt.tight_layout()
@@ -476,7 +479,7 @@ elif app_mode == "EDA / Insights":
             training_data_processed = training_data_processed.drop(columns=extra_cols, errors='ignore')
             training_data_processed = training_data_processed[expected_features]
             
-            explainer = shap.Explainer(model, training_data_processed)
+            explainer = shap.Explainer(model, training_data_processed)  # Use only the model, not the tuple
             shap_values = explainer(training_data_processed)
             
             st.markdown("**SHAP Summary Plot (Feature Importance)**")
