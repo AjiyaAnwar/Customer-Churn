@@ -7,6 +7,7 @@ import joblib
 import os
 import shap
 from sklearn.metrics import confusion_matrix, classification_report
+import warnings
 
 st.set_page_config(page_title="Customer Churn App", layout="wide")
 st.title("📊 Customer Churn & CLTV Prediction App")
@@ -15,15 +16,26 @@ st.title("📊 Customer Churn & CLTV Prediction App")
 st.sidebar.header("🔍 Navigation")
 app_mode = st.sidebar.radio("Choose App Mode:", ["New Data Prediction", "Prediction", "EDA / Insights", "About"])
 
-# Load model and feature names
+# Load model and test data
 @st.cache_resource
 def load_model():
     model_path = "churn_model.pkl"
-    if os.path.exists(model_path):
-        return joblib.load(model_path)
-    else:
+    if not os.path.exists(model_path):
         st.error("Model file 'churn_model.pkl' not found. Please ensure the model file is in the project directory.")
         st.stop()
+    model = joblib.load(model_path)
+    # Placeholder for test data and features (adjust based on your setup)
+    # Assuming test data is pre-saved or derived; replace with actual data loading if available
+    try:
+        x_test = pd.read_csv("x_test.csv")  # Replace with actual test data path
+        y_test = pd.read_csv("y_test.csv")  # Replace with actual test labels path
+        expected_features = x_test.columns.tolist()
+    except FileNotFoundError:
+        st.warning("Test data not found. Using dummy test data for demonstration.")
+        x_test = pd.DataFrame(np.random.rand(100, 10), columns=[f"feature_{i}" for i in range(10)])
+        y_test = pd.Series(np.random.randint(0, 2, 100))
+        expected_features = x_test.columns.tolist()
+    return model, expected_features, x_test, y_test
 
 # Load data for EDA
 @st.cache_data
@@ -32,7 +44,9 @@ def load_eda_data():
         customer = pd.read_csv("Customer_Info.csv")
         service = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
         status = pd.read_csv("Status_Analysis.csv")
-        return customer, service, status
+        # Create wide_customer by merging customer and status
+        wide_customer = customer.merge(status[['customer_id', 'customer_status', 'churn_value', 'satisfaction_score', 'cltv']], on='customer_id', how='left')
+        return customer, service, status, wide_customer
     except FileNotFoundError as e:
         st.error(f"Error: One or more data files not found in the 'data' directory. Please ensure 'Customer_Info.csv', 'Online_Services.csv', and 'Status_Analysis.csv' are present. ({str(e)})")
         st.stop()
@@ -82,7 +96,6 @@ if app_mode == "New Data Prediction":
         input_df['Churn_Probability'] = prediction_proba[:, 1]
 
         st.subheader("Prediction Results")
-        # Apply highlight_max only to numerical columns
         numerical_cols = input_df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
         styled_df = input_df.style.highlight_max(subset=numerical_cols, axis=0, color="lightgreen")
         st.dataframe(styled_df)
@@ -142,7 +155,6 @@ elif app_mode == "Prediction":
     prediction_proba = model.predict_proba(input_df_processed)
     input_df['Churn_Prediction'] = predictions
     input_df['Churn_Probability'] = prediction_proba[:, 1]
-    # Apply highlight_max only to numerical columns
     numerical_cols = input_df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
     styled_df = input_df.style.highlight_max(subset=numerical_cols, axis=0, color="lightgreen")
     st.dataframe(styled_df)
@@ -158,7 +170,6 @@ elif app_mode == "Prediction":
                     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
                     sns.histplot(data=input_df, x='age', hue='gender', multiple='stack',
                                  shrink=0.9, alpha=0.85, ax=axes[0], palette="viridis")
-                    # Age group calculation
                     input_df['under_30'] = (input_df['age'] < 30).astype(int)
                     input_df['senior_citizen'] = (input_df['age'] >= 65).astype(int)
                     input_df['30-65'] = ((input_df['age'] >= 30) & (input_df['age'] < 65)).astype(int)
@@ -177,7 +188,6 @@ elif app_mode == "Prediction":
                 if available_service_cols:
                     st.markdown("**Service Correlation Heatmap**")
                     service_matrix = input_df[available_service_cols].copy()
-                    # Convert categorical to numeric
                     for col in service_matrix.columns:
                         if service_matrix[col].dtype == 'object':
                             service_matrix[col] = service_matrix[col].replace({'Yes': 1, 'No': 0})
@@ -193,7 +203,7 @@ elif app_mode == "Prediction":
                 # Churn Categories & Satisfaction (if applicable)
                 if 'churn_category' in input_df.columns and 'satisfaction_score' in input_df.columns:
                     st.markdown("**Churn Categories & Satisfaction**")
-                    churn_data = input_df[input_df['Churn_Prediction'] == 1]  # Use predicted churn
+                    churn_data = input_df[input_df['Churn_Prediction'] == 1]
                     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
                     churn_cat = churn_data.groupby('churn_category').size().reset_index(name='count')
                     ax[0].pie(churn_cat['count'], labels=churn_cat['churn_category'], autopct='%1.1f%%',
@@ -210,17 +220,14 @@ elif app_mode == "Prediction":
         # SHAP Feature Importance for Uploaded CSV
         with st.expander("📈 Feature Importance (SHAP Analysis)"):
             try:
-                # Initialize SHAP explainer
                 explainer = shap.Explainer(model, input_df_processed)
                 shap_values = explainer(input_df_processed)
                 
-                # Plot SHAP summary (beeswarm plot)
                 st.markdown("**SHAP Summary Plot (Feature Importance)**")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 shap.summary_plot(shap_values, input_df_processed, show=False)
                 st.pyplot(fig)
                 
-                # Plot SHAP bar plot for mean absolute SHAP values
                 st.markdown("**SHAP Bar Plot (Mean Absolute Impact)**")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 shap.summary_plot(shap_values, input_df_processed, plot_type="bar", show=False)
@@ -239,8 +246,6 @@ elif app_mode == "Prediction":
         
         st.markdown("**Classification Report:**")
         report = classification_report(y_test, y_pred, output_dict=True)
-        
-        # Log the classification report in a structured format
         for label, metrics in report.items():
             if isinstance(metrics, dict):
                 print(f"Label: {label}")
@@ -257,51 +262,66 @@ elif app_mode == "Prediction":
 # EDA / Insights Mode
 elif app_mode == "EDA / Insights":
     st.header("🔍 Exploratory Data Analysis")
-    customer, service, status = load_eda_data()
+    customer, service, status, wide_customer = load_eda_data()
     model, expected_features, x_test, y_test = load_model()
 
     with st.expander("Customer Age and Gender Distribution"):
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-        sns.histplot(data=customer, x='age', hue='gender', multiple='stack',
-                     shrink=0.9, alpha=0.85, ax=axes[0], palette="viridis")
-        age_group = customer[['under_30', 'senior_citizen']].replace({'Yes': 1, 'No': 0})
-        age_group['30-65'] = 1 - (age_group.under_30 + age_group.senior_citizen)
-        age_group = age_group.sum().reset_index(name='count')
-        axes[1].pie(age_group['count'], labels=age_group['index'], autopct='%1.1f%%',
-                    colors=["#ff9999", "#66b3ff", "#99ff99"], startangle=90,
-                    wedgeprops={'edgecolor': 'black'})
-        st.pyplot(fig)
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+            sns.histplot(data=customer, x='age', hue='gender', multiple='stack',
+                         shrink=0.9, alpha=0.85, ax=axes[0], palette="viridis")
+            age_group = customer[['under_30', 'senior_citizen']].replace({'Yes': 1, 'No': 0})
+            age_group['30-65'] = 1 - (age_group.under_30 + age_group.senior_citizen)
+            age_group = age_group.sum().reset_index(name='count')
+            axes[1].pie(age_group['count'], labels=age_group['index'], autopct='%1.1f%%',
+                        colors=["#ff9999", "#66b3ff", "#99ff99"], startangle=90,
+                        wedgeprops={'edgecolor': 'black'})
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating age/gender distribution: {str(e)}")
 
     with st.expander("Service Correlation Heatmap"):
-        service_matrix = service.replace({'Yes': 1, 'No': 0})
-        service_matrix = pd.get_dummies(service_matrix, columns=['internet_type'], dtype=int)
-        corr_matrix = service_matrix.drop(['customer_id'], axis=1).corr()
-        fig = plt.figure(figsize=(10, 6))
-        sns.heatmap(corr_matrix, cmap="mako", annot=True, fmt=".2f", linewidths=0.5,
-                    vmin=-1, vmax=1, cbar=True, square=True, annot_kws={"size": 8})
-        st.pyplot(fig)
+        try:
+            service_matrix = service.replace({'Yes': 1, 'No': 0})
+            service_matrix = pd.get_dummies(service_matrix, columns=['internet_type'], dtype=int)
+            corr_matrix = service_matrix.drop(['customer_id'], axis=1).corr()
+            fig = plt.figure(figsize=(10, 6))
+            sns.heatmap(corr_matrix, cmap="mako", annot=True, fmt=".2f", linewidths=0.5,
+                        vmin=-1, vmax=1, cbar=True, square=True, annot_kws={"size": 8})
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating service correlation heatmap: {str(e)}")
 
     with st.expander("Churn Categories & Satisfaction"):
-        churn = status[status.customer_status == 'Churned'].drop(columns=['customer_status', 'churn_value'])
-        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-        churn_cat = churn.groupby('churn_category').size().reset_index(name='count')
-        ax[0].pie(churn_cat['count'], labels=churn_cat['churn_category'], autopct='%1.1f%%',
-                  colors=['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#c2c2f0'],
-                  startangle=140, wedgeprops={'edgecolor': 'black'})
-        sns.boxplot(data=churn, x='churn_category', y='satisfaction_score',
-                    ax=ax[1], palette='coolwarm')
-        st.pyplot(fig)
+        try:
+            churn = status[status.customer_status == 'Churned'].drop(columns=['customer_status', 'churn_value'])
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#c2c2f0']
+            churn_cat = churn.groupby('churn_category').size().reset_index(name='count')
+            ax[0].pie(
+                x=churn_cat['count'], labels=churn_cat['churn_category'], autopct='%1.1f%%',
+                colors=colors, startangle=140, wedgeprops={'edgecolor': 'black'}
+            )
+            ax[0].set_title("Churn Categories Distribution (%)", fontsize=11, fontweight="bold")
+            category_order = ['Attitude', 'Competitor', 'Dissatisfaction', 'Other', 'Price']
+            sns.boxplot(data=churn, x='churn_category', y='satisfaction_score', order=category_order, ax=ax[1], palette='coolwarm')
+            ax[1].set_xticklabels(labels=category_order, fontsize=9, rotation=20)
+            ax[1].set_title("Churn Category vs. Satisfaction Score", fontsize=11, fontweight="bold")
+            ax[1].set_xlabel("")
+            ax[1].set_ylabel("Satisfaction Score", fontsize=10)
+            plt.tight_layout()
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating churn categories plot: {str(e)}")
 
     with st.expander("Demographic Distribution"):
         try:
-            # Gender distribution bar plot
             fig, ax = plt.subplots(1, 2, figsize=(12, 5))
             gender_counts = customer['gender'].value_counts()
             sns.barplot(x=gender_counts.index, y=gender_counts.values, ax=ax[0], palette='pastel')
             ax[0].set_title('Gender Distribution')
             ax[0].set_xlabel('Gender')
             ax[0].set_ylabel('Number of Customers')
-            # Partner status pie chart
             partner_counts = customer['partner'].value_counts()
             wedges, texts, autotexts = ax[1].pie(partner_counts, labels=partner_counts.index, autopct='%1.1f%%', colors=['#66b3ff', '#ff9999'], startangle=90, wedgeprops={'edgecolor': 'black'})
             ax[1].set_title('Partner Status')
@@ -313,12 +333,10 @@ elif app_mode == "EDA / Insights":
     with st.expander("Age Analysis"):
         try:
             fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-            # Boxplot: Age by gender
             sns.boxplot(data=customer, x='gender', y='age', ax=ax[0], palette='Set2')
             ax[0].set_title('Age by Gender')
             ax[0].set_xlabel('Gender')
             ax[0].set_ylabel('Age')
-            # Histogram: Age distribution
             sns.histplot(customer['age'], kde=True, ax=ax[1], color='skyblue')
             ax[1].set_title('Age Distribution')
             ax[1].set_xlabel('Age')
@@ -330,12 +348,10 @@ elif app_mode == "EDA / Insights":
     with st.expander("Dependents & Marital Status"):
         try:
             fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-            # Bar plot: Number of dependents by marital status
             sns.barplot(data=customer, x='married', y='number_of_dependents', estimator=sum, ci=None, ax=ax[0], palette='muted')
             ax[0].set_title('Total Number of Dependents by Marital Status')
             ax[0].set_xlabel('Marital Status')
             ax[0].set_ylabel('Total Number of Dependents')
-            # Stacked bar: Partner vs. Married
             partner_married = pd.crosstab(customer['partner'], customer['married'])
             partner_married.plot(kind='bar', stacked=True, ax=ax[1], color=['#a3c1ad', '#f7cac9'])
             ax[1].set_title('Partner vs. Married (Stacked)')
@@ -346,7 +362,89 @@ elif app_mode == "EDA / Insights":
         except Exception as e:
             st.error(f"Error generating dependents/marital status plots: {str(e)}")
 
-    with st.expander("📈 Feature Distributions (Histograms)"):
+    with st.expander("Payment-Related Features Distribution"):
+        try:
+            payment_cols = [
+                'monthly_charges', 'total_charges', 'total_revenue',
+                'avg_monthly_long_distance_charges', 'total_long_distance_charges', 'total_extra_data_charges'
+            ]
+            available_cols = [col for col in payment_cols if col in status.columns]
+            if not available_cols:
+                available_cols = [col for col in payment_cols if col in customer.columns]
+                payment_data = customer
+            else:
+                payment_data = status
+            if available_cols:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", FutureWarning)
+                    fig, axes = plt.subplots(2, 3, figsize=(12, 6))
+                    titles = [
+                        'Distribution of Monthly Wages', 'Distribution of Total Wages', 'Distribution of Total Income',
+                        'Monthly Long Distance Fees', 'Total Long Distance Charges', 'Extra Data Charges'
+                    ]
+                    colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#c2c2f0', '#ffb3e6']
+                    for ax, col, title, color in zip(axes.flat, available_cols, titles[:len(available_cols)], colors):
+                        sns.histplot(payment_data[col], ax=ax, color=color, alpha=0.85, edgecolor='black')
+                        ax.set_title(title, fontsize=11, fontweight='bold')
+                        ax.set_xlabel("")
+                        ax.set_ylabel("Frequency", fontsize=9)
+                        ax.grid(axis='y', linestyle='--', alpha=0.7)
+                    for ax in axes.flat[len(available_cols):]:
+                        ax.set_visible(False)
+                    fig.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.9, wspace=0.3, hspace=0.4)
+                    st.pyplot(fig)
+            else:
+                st.warning("No payment-related columns found in available datasets.")
+        except Exception as e:
+            st.error(f"Error generating payment features distribution: {str(e)}")
+
+    with st.expander("Customer Status Analysis"):
+        try:
+            fig, ax = plt.subplots(1, 3, figsize=(14, 5))
+            colors = ['#ff9999', '#66b3ff', '#99ff99']
+            status_group = status.groupby('customer_status').size().reset_index(name='count')
+            ax[0].pie(
+                status_group['count'], labels=status_group['customer_status'], autopct='%1.1f%%',
+                colors=colors, startangle=140, wedgeprops={'edgecolor': 'black'}
+            )
+            ax[0].set_title("Customer Status Distribution (%)", fontsize=11, fontweight="bold")
+            label_order = ['Churned', 'Stayed', 'Joined']
+            sns.boxplot(data=status, x='customer_status', y='satisfaction_score', order=label_order, ax=ax[1], palette='coolwarm')
+            ax[1].set_title("Customer Status vs. Satisfaction Score", fontsize=11, fontweight="bold")
+            ax[1].set_xlabel("")
+            ax[1].set_ylabel("Satisfaction Score", fontsize=10)
+            sns.boxplot(data=status, x='customer_status', y='cltv', order=label_order, ax=ax[2], palette='viridis')
+            ax[2].set_title("Customer Status vs. CLTV", fontsize=11, fontweight="bold")
+            ax[2].set_xlabel("")
+            ax[2].set_ylabel("CLTV", fontsize=10)
+            plt.tight_layout()
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating customer status analysis: {str(e)}")
+
+    with st.expander("Customer Status by Age and Gender"):
+        try:
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            sns.histplot(
+                data=wide_customer, x='age', hue='customer_status', multiple='stack', ax=ax[0],
+                palette="viridis", edgecolor="black", alpha=0.9
+            )
+            ax[0].set_title('Customer Status and Age Distribution', fontsize=11, fontweight="bold")
+            ax[0].set_xlabel("Age", fontsize=10)
+            ax[0].set_ylabel("Number of Customers", fontsize=10)
+            sns.countplot(
+                data=wide_customer, x='gender', hue='customer_status', ax=ax[1], alpha=0.85,
+                palette="Set2", edgecolor="black"
+            )
+            ax[1].set_title('Customer Status and Gender Distribution', fontsize=11, fontweight="bold")
+            ax[1].set_xlabel("Gender", fontsize=10)
+            ax[1].set_ylabel("Number of Customers", fontsize=10)
+            plt.tight_layout()
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating customer status by age/gender: {str(e)}")
+
+    with st.expander("Feature Distributions (Histograms)"):
         try:
             num_cols = customer.select_dtypes(include=[np.number]).columns
             if len(num_cols) > 0:
@@ -355,7 +453,6 @@ elif app_mode == "EDA / Insights":
                 for i, col in enumerate(num_cols):
                     sns.histplot(customer[col], kde=True, ax=axes[i], color='skyblue')
                     axes[i].set_title(f"Distribution of {col}")
-                # Hide any unused subplots
                 for j in range(i+1, len(axes)):
                     axes[j].set_visible(False)
                 st.pyplot(fig)
@@ -366,17 +463,12 @@ elif app_mode == "EDA / Insights":
 
     with st.expander("Feature Importance (SHAP Analysis for Training Data)"):
         try:
-            # Load and preprocess training data for SHAP
             customer_data = pd.read_csv("Customer_Info.csv")
             service_data = pd.read_csv("Online_Services.csv").replace({'Yes': 1, 'No': 0})
-            # Merge relevant data (assuming Customer_Info.csv contains most features)
             training_data = customer_data.merge(service_data, on='customer_id', how='left', suffixes=('', '_y'))
-            # Drop irrelevant columns
             columns_to_drop = [col for col in ['Churn', 'CLTV', 'CustomerID', 'customer_id'] if col in training_data.columns]
             training_data = training_data.drop(columns=columns_to_drop, errors='ignore')
-            # Preprocess: Convert categorical to dummy variables
             training_data_processed = pd.get_dummies(training_data, dtype=int)
-            # Align with model's expected features
             missing_cols = set(expected_features) - set(training_data_processed.columns)
             for col in missing_cols:
                 training_data_processed[col] = 0
@@ -384,17 +476,14 @@ elif app_mode == "EDA / Insights":
             training_data_processed = training_data_processed.drop(columns=extra_cols, errors='ignore')
             training_data_processed = training_data_processed[expected_features]
             
-            # Initialize SHAP explainer
             explainer = shap.Explainer(model, training_data_processed)
             shap_values = explainer(training_data_processed)
             
-            # Plot SHAP summary (beeswarm plot)
             st.markdown("**SHAP Summary Plot (Feature Importance)**")
             fig, ax = plt.subplots(figsize=(10, 6))
             shap.summary_plot(shap_values, training_data_processed, show=False)
             st.pyplot(fig)
             
-            # Plot SHAP bar plot for mean absolute SHAP values
             st.markdown("**SHAP Bar Plot (Mean Absolute Impact)**")
             fig, ax = plt.subplots(figsize=(10, 6))
             shap.summary_plot(shap_values, training_data_processed, plot_type="bar", show=False)
