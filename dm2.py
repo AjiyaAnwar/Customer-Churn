@@ -232,10 +232,27 @@ elif app_mode == "Prediction":
     with st.expander("📈 Model Performance on Test Set"):
         y_pred = model.predict(x_test)
         st.markdown("**Confusion Matrix:**")
-        st.dataframe(pd.DataFrame(confusion_matrix(y_test, y_pred)))
+        confusion_df = pd.DataFrame(confusion_matrix(y_test, y_pred))
+        st.dataframe(confusion_df.style.format("{:.2f}").set_table_styles(
+            [{'selector': 'th', 'props': [('text-align', 'right')]}]
+        ))
+        
         st.markdown("**Classification Report:**")
         report = classification_report(y_test, y_pred, output_dict=True)
-        st.dataframe(pd.DataFrame(report).transpose())
+        
+        # Log the classification report in a structured format
+        for label, metrics in report.items():
+            if isinstance(metrics, dict):
+                print(f"Label: {label}")
+                for metric, value in metrics.items():
+                    print(f"  {metric}: {value:.2f}")
+            else:
+                print(f"{label}: {metrics:.2f}")
+        
+        report_df = pd.DataFrame(report).transpose()
+        st.dataframe(report_df.style.format("{:.2f}").set_table_styles(
+            [{'selector': 'th', 'props': [('text-align', 'right')]}]
+        ))
 
 # EDA / Insights Mode
 elif app_mode == "EDA / Insights":
@@ -274,6 +291,78 @@ elif app_mode == "EDA / Insights":
         sns.boxplot(data=churn, x='churn_category', y='satisfaction_score',
                     ax=ax[1], palette='coolwarm')
         st.pyplot(fig)
+
+    with st.expander("Demographic Distribution"):
+        try:
+            # Gender distribution bar plot
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            gender_counts = customer['gender'].value_counts()
+            sns.barplot(x=gender_counts.index, y=gender_counts.values, ax=ax[0], palette='pastel')
+            ax[0].set_title('Gender Distribution')
+            ax[0].set_xlabel('Gender')
+            ax[0].set_ylabel('Number of Customers')
+            # Partner status pie chart
+            partner_counts = customer['partner'].value_counts()
+            wedges, texts, autotexts = ax[1].pie(partner_counts, labels=partner_counts.index, autopct='%1.1f%%', colors=['#66b3ff', '#ff9999'], startangle=90, wedgeprops={'edgecolor': 'black'})
+            ax[1].set_title('Partner Status')
+            ax[1].legend(wedges, partner_counts.index, title="Partner", loc="best")
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating demographic plots: {str(e)}")
+
+    with st.expander("Age Analysis"):
+        try:
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            # Boxplot: Age by gender
+            sns.boxplot(data=customer, x='gender', y='age', ax=ax[0], palette='Set2')
+            ax[0].set_title('Age by Gender')
+            ax[0].set_xlabel('Gender')
+            ax[0].set_ylabel('Age')
+            # Histogram: Age distribution
+            sns.histplot(customer['age'], kde=True, ax=ax[1], color='skyblue')
+            ax[1].set_title('Age Distribution')
+            ax[1].set_xlabel('Age')
+            ax[1].set_ylabel('Number of Customers')
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating age analysis plots: {str(e)}")
+
+    with st.expander("Dependents & Marital Status"):
+        try:
+            fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+            # Bar plot: Number of dependents by marital status
+            sns.barplot(data=customer, x='married', y='number_of_dependents', estimator=sum, ci=None, ax=ax[0], palette='muted')
+            ax[0].set_title('Total Number of Dependents by Marital Status')
+            ax[0].set_xlabel('Marital Status')
+            ax[0].set_ylabel('Total Number of Dependents')
+            # Stacked bar: Partner vs. Married
+            partner_married = pd.crosstab(customer['partner'], customer['married'])
+            partner_married.plot(kind='bar', stacked=True, ax=ax[1], color=['#a3c1ad', '#f7cac9'])
+            ax[1].set_title('Partner vs. Married (Stacked)')
+            ax[1].set_xlabel('Partner')
+            ax[1].set_ylabel('Number of Customers')
+            ax[1].legend(title='Married', loc='best')
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Error generating dependents/marital status plots: {str(e)}")
+
+    with st.expander("📈 Feature Distributions (Histograms)"):
+        try:
+            num_cols = customer.select_dtypes(include=[np.number]).columns
+            if len(num_cols) > 0:
+                fig, axes = plt.subplots(nrows=int(np.ceil(len(num_cols)/2)), ncols=2, figsize=(12, 4*int(np.ceil(len(num_cols)/2))))
+                axes = axes.flatten() if len(num_cols) > 1 else [axes]
+                for i, col in enumerate(num_cols):
+                    sns.histplot(customer[col], kde=True, ax=axes[i], color='skyblue')
+                    axes[i].set_title(f"Distribution of {col}")
+                # Hide any unused subplots
+                for j in range(i+1, len(axes)):
+                    axes[j].set_visible(False)
+                st.pyplot(fig)
+            else:
+                st.info("No numerical columns found in customer data for distribution plots.")
+        except Exception as e:
+            st.error(f"Error generating feature distributions: {str(e)}")
 
     with st.expander("Feature Importance (SHAP Analysis for Training Data)"):
         try:
